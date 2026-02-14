@@ -241,6 +241,13 @@ install_dependencies() {
     
     # Update nmap scripts
     nmap --script-updatedb
+
+    if [ "$DISPLAY_DRIVER" = "displayhatmini" ]; then
+        log "INFO" "Installing ST7789 Python library for Display HAT Mini..."
+        pip3 install st7789 --break-system-packages
+        check_success "Installed ST7789 Python library"
+    fi
+
     check_success "Dependencies installation completed"
 }
 
@@ -312,37 +319,49 @@ setup_bjorn() {
 
     # Update the shared_config.json file with the selected display configuration
     log "INFO" "Updating display configuration..."
-    if [ -f "config/shared_config.json" ]; then
-        if python3 - "$DISPLAY_DRIVER" "$EPD_VERSION" << 'PY'
+    config_path="${BJORN_PATH}/config/shared_config.json"
+    if [ -f "$config_path" ]; then
+        if python3 - "$config_path" "$DISPLAY_DRIVER" "$EPD_VERSION" << 'PY'
 import json
 import sys
+import traceback
 
-config_path = "config/shared_config.json"
-display_driver = sys.argv[1]
-epd_type = sys.argv[2]
+config_path = sys.argv[1]
+display_driver = sys.argv[2]
+epd_type = sys.argv[3]
 
-with open(config_path, "r", encoding="utf-8") as file:
-    config = json.load(file)
+try:
+    with open(config_path, "r", encoding="utf-8") as file:
+        config = json.load(file)
 
-config["display_driver"] = display_driver
-if display_driver == "waveshare_epd":
-    config["epd_type"] = epd_type
+    config["display_driver"] = display_driver
+    if display_driver == "waveshare_epd":
+        config["epd_type"] = epd_type
 
-with open(config_path, "w", encoding="utf-8") as file:
-    json.dump(config, file, indent=4)
-    file.write("\n")
+    with open(config_path, "w", encoding="utf-8") as file:
+        json.dump(config, file, indent=4)
+        file.write("\n")
+except Exception:
+    traceback.print_exc()
+    raise
 PY
         then
-            if [ "$DISPLAY_DRIVER" = "waveshare_epd" ]; then
-                check_success "Updated E-Paper display configuration to $EPD_VERSION"
-            else
-                check_success "Updated display configuration to Pimoroni Display HAT Mini"
-            fi
+            case "$DISPLAY_DRIVER" in
+                "waveshare_epd")
+                    check_success "Updated E-Paper display configuration to $EPD_VERSION"
+                    ;;
+                "displayhatmini")
+                    check_success "Updated display configuration to Pimoroni Display HAT Mini"
+                    ;;
+                *)
+                    check_success "Updated display configuration"
+                    ;;
+            esac
         else
             handle_error "Display configuration update"
         fi
     else
-        log "ERROR" "Configuration file not found: config/shared_config.json"
+        log "ERROR" "Configuration file not found: $config_path"
         handle_error "Display configuration update"
     fi
 
@@ -402,6 +421,15 @@ ExecStartPost=/bin/bash -c 'FILE_LIMIT=\$(ulimit -n); THRESHOLD=\$(( FILE_LIMIT 
 WantedBy=multi-user.target
 EOF
 
+    # Install web UI service
+    if [ -f "$BJORN_PATH/bjorn-web.service" ]; then
+        install -m 644 "$BJORN_PATH/bjorn-web.service" /etc/systemd/system/bjorn-web.service
+        check_success "Installed bjorn-web.service"
+    else
+        log "ERROR" "Service file not found: $BJORN_PATH/bjorn-web.service"
+        handle_error "Installing bjorn-web.service"
+    fi
+
     # Configure PAM
     echo "session required pam_limits.so" >> /etc/pam.d/common-session
     echo "session required pam_limits.so" >> /etc/pam.d/common-session-noninteractive
@@ -409,6 +437,13 @@ EOF
     # Enable and start services
     systemctl daemon-reload
     systemctl enable bjorn.service
+    check_success "Enabled bjorn.service"
+    systemctl enable bjorn-web.service
+    check_success "Enabled bjorn-web.service"
+    systemctl start bjorn.service
+    check_success "Started bjorn.service"
+    systemctl start bjorn-web.service
+    check_success "Started bjorn-web.service"
 
     check_success "Services setup completed"
 }

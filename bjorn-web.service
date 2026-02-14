@@ -1,0 +1,13 @@
+[Unit]
+Description=Bjorn Battle Station Web UI
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/bjorn/Bjorn
+ExecStart=/usr/bin/python3 /home/bjorn/Bjorn/webapp.py
+Restart=always
+User=root
+
+[Install]
+WantedBy=multi-user.target
