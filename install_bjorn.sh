@@ -242,12 +242,6 @@ install_dependencies() {
     # Update nmap scripts
     nmap --script-updatedb
 
-    if [ "$DISPLAY_DRIVER" = "displayhatmini" ]; then
-        log "INFO" "Installing ST7789 Python library for Display HAT Mini..."
-        pip3 install st7789 --break-system-packages
-        check_success "Installed ST7789 Python library"
-    fi
-
     check_success "Dependencies installation completed"
 }
 
@@ -291,6 +285,55 @@ configure_interfaces() {
     raspi-config nonint do_i2c 0
     
     check_success "Interface configuration completed"
+}
+
+# Install Pimoroni Display HAT Mini support (Bookworm/PEP 668 safe)
+install_displayhatmini() {
+    log "INFO" "Installing Pimoroni Display HAT Mini support..."
+
+    if [ ! -e "/dev/spidev0.0" ]; then
+        log "WARNING" "SPI device /dev/spidev0.0 not found."
+        log "WARNING" "Enable SPI with: sudo raspi-config nonint do_spi 0"
+        log "WARNING" "Reboot and rerun installer before using Display HAT Mini."
+        return 1
+    fi
+
+    if ! dpkg -s python3-pip >/dev/null 2>&1; then
+        log "INFO" "Installing missing dependency: python3-pip"
+        apt-get install -y python3-pip
+        if [ $? -ne 0 ]; then
+            log "ERROR" "Failed to install python3-pip"
+            return 1
+        fi
+    fi
+
+    sudo /usr/bin/python3 -m pip install -U pip --break-system-packages
+    if [ $? -ne 0 ]; then
+        log "ERROR" "Failed to upgrade pip in system Python"
+        return 1
+    fi
+
+    sudo /usr/bin/python3 -m pip install -U displayhatmini --break-system-packages
+    if [ $? -ne 0 ]; then
+        log "ERROR" "Failed to install displayhatmini into system Python"
+        return 1
+    fi
+
+    usermod -a -G spi,gpio,i2c "$BJORN_USER" >/dev/null 2>&1
+    if [ $? -ne 0 ]; then
+        log "ERROR" "Failed to add $BJORN_USER to spi,gpio,i2c groups"
+        return 1
+    fi
+
+    /usr/bin/python3 -c "import displayhatmini, spidev; print('displayhatmini OK', displayhatmini.__file__)"
+    if [ $? -ne 0 ]; then
+        log "ERROR" "Display HAT Mini sanity check failed (import displayhatmini/spidev)."
+        log "ERROR" "Verify SPI is enabled and rerun installer after reboot."
+        return 1
+    fi
+
+    log "SUCCESS" "Display HAT Mini support installed successfully"
+    return 0
 }
 
 # Setup BJORN
@@ -370,6 +413,13 @@ PY
     
     pip3 install -r requirements.txt --break-system-packages
     check_success "Installed Python requirements"
+
+    if [ "$DISPLAY_DRIVER" = "displayhatmini" ]; then
+        if ! install_displayhatmini; then
+            log "WARNING" "Display HAT Mini setup failed; continuing installer."
+            log "WARNING" "Rerun install_bjorn.sh after fixing SPI/pip issues."
+        fi
+    fi
 
     # Set correct permissions
     chown -R $BJORN_USER:$BJORN_USER /home/$BJORN_USER/Bjorn
