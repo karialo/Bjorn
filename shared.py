@@ -21,12 +21,33 @@ import time
 import csv
 import logging
 import subprocess
+from types import SimpleNamespace
 from PIL import Image, ImageFont 
 from logger import Logger
-from epd_helper import EPDHelper
+from display_backend import create_display_backend
 
 
 logger = Logger(name="shared.py", level=logging.DEBUG) # Create a logger object 
+
+
+class NoOpDisplayBackend:
+    """Fallback backend used when hardware display initialization fails."""
+
+    def __init__(self, width, height):
+        self.epd = SimpleNamespace(width=width, height=height)
+
+    def init_full_update(self):
+        logger.warning("Display backend unavailable, skipping full update initialization.")
+
+    def init_partial_update(self):
+        logger.warning("Display backend unavailable, skipping partial update initialization.")
+
+    def display_partial(self, image):
+        return
+
+    def clear(self):
+        return
+
 
 class SharedData:
     """Shared data between the different modules."""
@@ -142,6 +163,7 @@ class SharedData:
             "success_retry_delay": 900, 
             "ref_width" :122 ,
             "ref_height" : 250,
+            "display_driver": "waveshare_epd",
             "epd_type": "epd2in13_V4",
             
             
@@ -214,7 +236,7 @@ class SharedData:
         self.generate_actions_json()
         self.delete_webconsolelog()
         self.initialize_csv()
-        self.initialize_epd_display()
+        self.initialize_display()
     
 
     # def initialize_epd_display(self):
@@ -242,35 +264,49 @@ class SharedData:
     #     except Exception as e:
     #         logger.error(f"Error initializing EPD display: {e}")
     #         raise
-    def initialize_epd_display(self):
-        """Initialize the e-paper display."""
+    def initialize_display(self):
+        """Initialize the selected display backend."""
+        display_driver = self.config.get("display_driver", "waveshare_epd")
+        epd_type = self.config.get("epd_type", "epd2in13_V4")
+        self.screen_reversed = False
+        self.web_screen_reversed = False
+
         try:
-            logger.info("Initializing EPD display...")
+            logger.info(f"Initializing display backend: {display_driver}")
             time.sleep(1)
-            self.epd_helper = EPDHelper(self.config["epd_type"])
-            self.epd_helper = EPDHelper(self.epd_type)
-            if self.config["epd_type"] == "epd2in7":
-                logger.info("EPD type: epd2in7 screen reversed")
-                self.screen_reversed = False
-                self.web_screen_reversed = False
-            elif self.config["epd_type"] == "epd2in13_V2":
-                logger.info("EPD type: epd2in13_V2 screen reversed")
-                self.screen_reversed = False
-                self.web_screen_reversed = False
-            elif self.config["epd_type"] == "epd2in13_V3":
-                logger.info("EPD type: epd2in13_V3 screen reversed")
-                self.screen_reversed = True
-                self.web_screen_reversed = True
-            elif self.config["epd_type"] == "epd2in13_V4":
-                logger.info("EPD type: epd2in13_V4 screen reversed")
-                self.screen_reversed = True
-                self.web_screen_reversed = True
+            self.epd_helper = create_display_backend(self.config)
+
+            if display_driver == "waveshare_epd":
+                if epd_type == "epd2in7":
+                    logger.info("EPD type: epd2in7 screen reversed")
+                    self.screen_reversed = False
+                    self.web_screen_reversed = False
+                elif epd_type == "epd2in13_V2":
+                    logger.info("EPD type: epd2in13_V2 screen reversed")
+                    self.screen_reversed = False
+                    self.web_screen_reversed = False
+                elif epd_type == "epd2in13_V3":
+                    logger.info("EPD type: epd2in13_V3 screen reversed")
+                    self.screen_reversed = True
+                    self.web_screen_reversed = True
+                elif epd_type == "epd2in13_V4":
+                    logger.info("EPD type: epd2in13_V4 screen reversed")
+                    self.screen_reversed = True
+                    self.web_screen_reversed = True
+
             self.epd_helper.init_full_update()
             self.width, self.height = self.epd_helper.epd.width, self.epd_helper.epd.height
-            logger.info(f"EPD {self.config['epd_type']} initialized with size: {self.width}x{self.height}")
+            logger.info(f"Display backend '{display_driver}' initialized with size: {self.width}x{self.height}")
         except Exception as e:
-            logger.error(f"Error initializing EPD display: {e}")
-            raise
+            logger.error(
+                f"Error initializing display backend '{display_driver}': {e}. "
+                "Continuing without hardware display."
+            )
+            self.epd_helper = NoOpDisplayBackend(
+                int(self.config.get("ref_width", 122)),
+                int(self.config.get("ref_height", 250)),
+            )
+            self.width, self.height = self.epd_helper.epd.width, self.epd_helper.epd.height
         
     def initialize_variables(self):
         """Initialize the variables."""

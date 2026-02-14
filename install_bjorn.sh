@@ -23,6 +23,8 @@ BJORN_USER="bjorn"
 BJORN_PATH="/home/${BJORN_USER}/Bjorn"
 CURRENT_STEP=0
 TOTAL_STEPS=8
+DISPLAY_DRIVER="waveshare_epd"
+EPD_VERSION="epd2in13_V4"
 
 if [[ "$1" == "--help" ]]; then
     echo "Usage: sudo ./install_bjorn.sh"
@@ -308,14 +310,40 @@ setup_bjorn() {
 
     cd Bjorn
 
-    # Update the shared_config.json file with the selected EPD version
-    log "INFO" "Updating E-Paper display configuration..."
+    # Update the shared_config.json file with the selected display configuration
+    log "INFO" "Updating display configuration..."
     if [ -f "config/shared_config.json" ]; then
-        sed -i "s/\"epd_type\": \"[^\"]*\"/\"epd_type\": \"$EPD_VERSION\"/" config/shared_config.json
-        check_success "Updated E-Paper display configuration to $EPD_VERSION"
+        if python3 - "$DISPLAY_DRIVER" "$EPD_VERSION" << 'PY'
+import json
+import sys
+
+config_path = "config/shared_config.json"
+display_driver = sys.argv[1]
+epd_type = sys.argv[2]
+
+with open(config_path, "r", encoding="utf-8") as file:
+    config = json.load(file)
+
+config["display_driver"] = display_driver
+if display_driver == "waveshare_epd":
+    config["epd_type"] = epd_type
+
+with open(config_path, "w", encoding="utf-8") as file:
+    json.dump(config, file, indent=4)
+    file.write("\n")
+PY
+        then
+            if [ "$DISPLAY_DRIVER" = "waveshare_epd" ]; then
+                check_success "Updated E-Paper display configuration to $EPD_VERSION"
+            else
+                check_success "Updated display configuration to Pimoroni Display HAT Mini"
+            fi
+        else
+            handle_error "Display configuration update"
+        fi
     else
         log "ERROR" "Configuration file not found: config/shared_config.json"
-        handle_error "E-Paper display configuration update"
+        handle_error "Display configuration update"
     fi
 
     # Install requirements with --break-system-packages flag
@@ -530,27 +558,42 @@ main() {
     echo "2. Custom installation"
     read -p "Choose an option (1/2): " install_option
 
-    # E-Paper Display Selection
-    echo -e "\n${BLUE}Please select your E-Paper Display version:${NC}"
-    echo "1. epd2in13"
-    echo "2. epd2in13_V2"
-    echo "3. epd2in13_V3"
-    echo "4. epd2in13_V4"
-    echo "5. epd2in7"
-    
+    echo -e "\n${BLUE}Please select display type:${NC}"
+    echo "1. Waveshare E-Paper (2.13 / 2.7)"
+    echo "2. Pimoroni Display HAT Mini (ST7789 LCD)"
+
     while true; do
-        read -p "Enter your choice (1-4): " epd_choice
-        case $epd_choice in
-            1) EPD_VERSION="epd2in13"; break;;
-            2) EPD_VERSION="epd2in13_V2"; break;;
-            3) EPD_VERSION="epd2in13_V3"; break;;
-            4) EPD_VERSION="epd2in13_V4"; break;;
-            5) EPD_VERSION="epd2in7"; break;;
-            *) echo -e "${RED}Invalid choice. Please select 1-5.${NC}";;
+        read -p "Enter your choice (1-2): " display_choice
+        case $display_choice in
+            1) DISPLAY_DRIVER="waveshare_epd"; break;;
+            2) DISPLAY_DRIVER="displayhatmini"; break;;
+            *) echo -e "${RED}Invalid choice. Please select 1-2.${NC}";;
         esac
     done
 
-    log "INFO" "Selected E-Paper Display version: $EPD_VERSION"
+    if [ "$DISPLAY_DRIVER" = "waveshare_epd" ]; then
+        echo -e "\n${BLUE}Please select your E-Paper Display version:${NC}"
+        echo "1. epd2in13"
+        echo "2. epd2in13_V2"
+        echo "3. epd2in13_V3"
+        echo "4. epd2in13_V4"
+        echo "5. epd2in7"
+
+        while true; do
+            read -p "Enter your choice (1-5): " epd_choice
+            case $epd_choice in
+                1) EPD_VERSION="epd2in13"; break;;
+                2) EPD_VERSION="epd2in13_V2"; break;;
+                3) EPD_VERSION="epd2in13_V3"; break;;
+                4) EPD_VERSION="epd2in13_V4"; break;;
+                5) EPD_VERSION="epd2in7"; break;;
+                *) echo -e "${RED}Invalid choice. Please select 1-5.${NC}";;
+            esac
+        done
+        log "INFO" "Selected display type: Waveshare E-Paper ($EPD_VERSION)"
+    else
+        log "INFO" "Selected display type: Pimoroni Display HAT Mini"
+    fi
 
     case $install_option in
         1)
@@ -614,7 +657,11 @@ main() {
     echo "   - Default Gateway: 172.20.2.1"
     echo "   - DNS Servers: 8.8.8.8, 8.8.4.4"
     echo "2. Web interface will be available at: http://[device-ip]:8000"
-    echo "3. Make sure your e-Paper HAT (2.13-inch) is properly connected"
+    if [ "$DISPLAY_DRIVER" = "waveshare_epd" ]; then
+        echo "3. Make sure your e-Paper HAT (2.13-inch) is properly connected"
+    else
+        echo "3. Make sure your Pimoroni Display HAT Mini is properly connected"
+    fi
 
     read -p "Would you like to reboot now? (y/n): " reboot_now
     if [ "$reboot_now" = "y" ]; then
@@ -630,7 +677,6 @@ main() {
 }
 
 main
-
 
 
 
