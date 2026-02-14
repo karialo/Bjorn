@@ -434,6 +434,15 @@ PY
 # Configure services
 setup_services() {
     log "INFO" "Setting up system services..."
+    local displayhatmini_env=""
+
+    if [ "$DISPLAY_DRIVER" = "displayhatmini" ]; then
+        displayhatmini_env=$(cat << EOF
+Environment=DISPLAY_DRIVER=displayhatmini
+Environment=DISPLAYHATMINI_ROTATION=90
+EOF
+)
+    fi
     
     # Create kill_port_8000.sh script
     cat > $BJORN_PATH/kill_port_8000.sh << 'EOF'
@@ -463,6 +472,7 @@ StandardOutput=inherit
 StandardError=inherit
 Restart=always
 User=root
+${displayhatmini_env}
 
 # Check open files and restart if it reached the limit (ulimit -n buffer of 1000)
 ExecStartPost=/bin/bash -c 'FILE_LIMIT=\$(ulimit -n); THRESHOLD=\$(( FILE_LIMIT - 1000 )); while :; do TOTAL_OPEN_FILES=\$(lsof | wc -l); if [ "\$TOTAL_OPEN_FILES" -ge "\$THRESHOLD" ]; then echo "File descriptor threshold reached: \$TOTAL_OPEN_FILES (threshold: \$THRESHOLD). Restarting service."; systemctl restart bjorn.service; exit 0; fi; sleep 10; done &'
@@ -762,6 +772,4 @@ main() {
 }
 
 main
-
-
 

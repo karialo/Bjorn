@@ -56,6 +56,11 @@ class WaveshareEPDBackend:
 class DisplayHATMiniBackend:
     WIDTH = 320
     HEIGHT = 240
+    ROTATION_TRANSPOSE = {
+        90: Image.ROTATE_90,
+        180: Image.ROTATE_180,
+        270: Image.ROTATE_270,
+    }
     FRIENDLY_IMPORT_ERROR = (
         "Display HAT Mini backend requires running on Raspberry Pi with "
         "RPi.GPIO + spidev + ST7789 available (enable SPI)."
@@ -63,9 +68,13 @@ class DisplayHATMiniBackend:
 
     def __init__(self):
         self.epd = SimpleNamespace(width=self.WIDTH, height=self.HEIGHT)
+        self.rotation_degrees = self._read_rotation_degrees()
         self.displayhatmini = self._import_displayhatmini()
         self.buffer = Image.new("RGB", (self.WIDTH, self.HEIGHT), (0, 0, 0))
         self.display_device = self._build_display_device()
+        logger.info(
+            "Display HAT Mini rotation set to %d degrees.", self.rotation_degrees
+        )
 
     def _import_displayhatmini(self):
         vendored_path = os.path.join(
@@ -126,6 +135,42 @@ class DisplayHATMiniBackend:
         except TypeError:
             return display_cls()
 
+    @staticmethod
+    def _read_rotation_degrees():
+        raw_rotation = os.getenv("DISPLAYHATMINI_ROTATION", "0").strip()
+        if raw_rotation == "":
+            return 0
+        try:
+            rotation_degrees = int(raw_rotation)
+        except ValueError:
+            logger.warning(
+                "Invalid DISPLAYHATMINI_ROTATION='%s'; defaulting to 0.",
+                raw_rotation,
+            )
+            return 0
+        if rotation_degrees not in (0, 90, 180, 270):
+            logger.warning(
+                "Unsupported DISPLAYHATMINI_ROTATION='%s'; defaulting to 0.",
+                raw_rotation,
+            )
+            return 0
+        return rotation_degrees
+
+    def _rotate_for_output(self, image):
+        if self.rotation_degrees == 0:
+            return image
+        if not isinstance(image, Image.Image):
+            logger.warning(
+                "Display HAT Mini rotation skipped: expected PIL.Image.Image, got %s.",
+                type(image).__name__,
+            )
+            return image
+        try:
+            return image.transpose(self.ROTATION_TRANSPOSE[self.rotation_degrees])
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.warning("Display HAT Mini rotation skipped: %s", exc)
+            return image
+
     def _fit_to_canvas(self, image):
         source = image.convert("RGB")
         source.thumbnail((self.WIDTH, self.HEIGHT), Image.Resampling.LANCZOS)
@@ -178,6 +223,8 @@ class DisplayHATMiniBackend:
 
     def display_partial(self, image):
         rendered = self._fit_to_canvas(image)
+        rendered = self._rotate_for_output(rendered)
+        rendered = self._fit_to_canvas(rendered)
         if self.display_device is not None:
             self._push_with_instance(rendered)
         else:
