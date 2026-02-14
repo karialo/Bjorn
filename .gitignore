@@ -135,3 +135,6 @@ $RECYCLE.BIN/
 
 scripts
 */certs/
+
+# local vendor clone - do not commit
+/displayhatmini-python/
