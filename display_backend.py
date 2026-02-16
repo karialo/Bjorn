@@ -62,7 +62,7 @@ class DisplayHATMiniBackend:
         270: Image.ROTATE_270,
     }
     FRIENDLY_IMPORT_ERROR = (
-        "Display HAT Mini backend requires running on Raspberry Pi with "
+        "Display HAT Mini backend requires running on Raspberry Pi Device with "
         "RPi.GPIO + spidev + ST7789 available (enable SPI)."
     )
 
@@ -173,12 +173,21 @@ class DisplayHATMiniBackend:
 
     def _fit_to_canvas(self, image):
         source = image.convert("RGB")
-        source.thumbnail((self.WIDTH, self.HEIGHT), Image.Resampling.LANCZOS)
-        canvas = Image.new("RGB", (self.WIDTH, self.HEIGHT), (0, 0, 0))
-        paste_x = (self.WIDTH - source.width) // 2
-        paste_y = (self.HEIGHT - source.height) // 2
-        canvas.paste(source, (paste_x, paste_y))
-        return canvas
+    
+        tw, th = self.WIDTH, self.HEIGHT
+        sw, sh = source.size
+    
+        # Scale to fully cover target (may crop)
+        scale = max(tw / sw, th / sh)
+        nw, nh = int(sw * scale), int(sh * scale)
+    
+        resized = source.resize((nw, nh), Image.Resampling.LANCZOS)
+    
+        # Center-crop to exact target size
+        left = (nw - tw) // 2
+        top = (nh - th) // 2
+        return resized.crop((left, top, left + tw, top + th))
+    
 
     def _push_with_instance(self, image):
         if hasattr(self.display_device, "buffer"):
@@ -222,13 +231,15 @@ class DisplayHATMiniBackend:
         logger.info("Display HAT Mini selected; partial update init is a no-op.")
 
     def display_partial(self, image):
-        rendered = self._fit_to_canvas(image)
+        rendered = image.convert("RGB")
         rendered = self._rotate_for_output(rendered)
         rendered = self._fit_to_canvas(rendered)
+    
         if self.display_device is not None:
             self._push_with_instance(rendered)
         else:
             self._push_with_module(rendered)
+    
 
     def clear(self):
         self.display_partial(Image.new("RGB", (self.WIDTH, self.HEIGHT), (0, 0, 0)))

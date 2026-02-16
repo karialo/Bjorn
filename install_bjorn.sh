@@ -439,7 +439,10 @@ setup_services() {
     if [ "$DISPLAY_DRIVER" = "displayhatmini" ]; then
         displayhatmini_env=$(cat << EOF
 Environment=DISPLAY_DRIVER=displayhatmini
-Environment=DISPLAYHATMINI_ROTATION=90
+Environment=DISPLAYHATMINI_ROTATION=180
+Environment=BJORN_FONT_SCALE=1.25
+Environment=BJORN_ICON_SCALE=1.25
+Environment=BJORN_STATUS_SCALE=1.25
 EOF
 )
     fi

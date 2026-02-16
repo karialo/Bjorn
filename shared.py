@@ -59,6 +59,7 @@ class SharedData:
         self.config = self.default_config.copy() # Configuration of the application
         # Load existing configuration first
         self.load_config()
+        self.configure_display_scales()
 
         # Update MAC blacklist without immediate save
         self.update_mac_blacklist()
@@ -490,6 +491,60 @@ class SharedData:
         except Exception as e:
             logger.error(f"Unexpected error in save_config: {e}")
 
+    def configure_display_scales(self):
+        """Configure runtime scaling for fonts and images."""
+        display_driver = str(self.config.get("display_driver", "waveshare_epd")).strip().lower()
+        default_scale = 1.25 if display_driver == "displayhatmini" else 1.0
+
+        self.font_scale = self._read_scale_env("BJORN_FONT_SCALE", default_scale)
+        self.icon_scale = self._read_scale_env("BJORN_ICON_SCALE", default_scale)
+        self.status_scale = self._read_scale_env("BJORN_STATUS_SCALE", default_scale)
+
+        logger.info(
+            "Display scales (driver=%s): font=%.2f icon=%.2f status=%.2f",
+            display_driver,
+            self.font_scale,
+            self.icon_scale,
+            self.status_scale,
+        )
+
+    def _read_scale_env(self, name, default):
+        """Read and clamp an image/font scale env var."""
+        raw_value = os.getenv(name)
+        if raw_value is None:
+            return default
+
+        raw_value = raw_value.strip()
+        if raw_value == "":
+            logger.warning("%s is empty; using default %.2f", name, default)
+            return default
+
+        try:
+            scale = float(raw_value)
+        except ValueError:
+            logger.warning("%s has invalid value '%s'; using default %.2f", name, raw_value, default)
+            return default
+
+        clamped = max(0.5, min(3.0, scale))
+        if clamped != scale:
+            logger.warning("%s value %.2f is out of range; clamped to %.2f", name, scale, clamped)
+        return clamped
+
+    def scale_image(self, img, scale, mode="1-bit-friendly"):
+        """Scale an image while preserving sharp 1-bit bitmap edges."""
+        if img is None:
+            return None
+        if abs(scale - 1.0) < 1e-6:
+            return img
+
+        width = max(1, int(round(img.width * scale)))
+        height = max(1, int(round(img.height * scale)))
+        if width == img.width and height == img.height:
+            return img
+
+        resample = Image.Resampling.NEAREST if mode == "1-bit-friendly" else Image.Resampling.LANCZOS
+        return img.resize((width, height), resample=resample)
+
     def load_fonts(self):
         """Load the fonts."""
         try:
@@ -505,41 +560,46 @@ class SharedData:
             raise
 
     def load_font(self, font_name, size):
-        """Load a font."""
+        """Load a font with optional runtime scaling."""
+        scale = getattr(self, "font_scale", 1.0)
+        scaled_size = max(1, int(size * scale))
         try:
-            return ImageFont.truetype(os.path.join(self.fontdir, font_name), size)
+            return ImageFont.truetype(os.path.join(self.fontdir, font_name), scaled_size)
         except Exception as e:
             logger.error(f"Error loading font {font_name}: {e}")
             raise
+
 
     def load_images(self):
         """Load the images for the e-paper display."""
         try:
             logger.info("Loading images...")
+            icon_scale = getattr(self, "icon_scale", 1.0)
+            status_scale = getattr(self, "status_scale", 1.0)
 
             # Load static images from the root of staticpicdir
             self.bjornstatusimage = None
-            self.bjorn1 = self.load_image(os.path.join(self.staticpicdir, 'bjorn1.bmp')) # Used to calculate the center of the screen
-            self.port = self.load_image(os.path.join(self.staticpicdir, 'port.bmp'))
-            self.frise = self.load_image(os.path.join(self.staticpicdir, 'frise.bmp'))
-            self.target = self.load_image(os.path.join(self.staticpicdir, 'target.bmp'))
-            self.vuln = self.load_image(os.path.join(self.staticpicdir, 'vuln.bmp'))
-            self.connected = self.load_image(os.path.join(self.staticpicdir, 'connected.bmp'))
-            self.bluetooth = self.load_image(os.path.join(self.staticpicdir, 'bluetooth.bmp'))
-            self.wifi = self.load_image(os.path.join(self.staticpicdir, 'wifi.bmp'))
-            self.ethernet = self.load_image(os.path.join(self.staticpicdir, 'ethernet.bmp'))
-            self.usb = self.load_image(os.path.join(self.staticpicdir, 'usb.bmp'))
-            self.level = self.load_image(os.path.join(self.staticpicdir, 'level.bmp'))
-            self.cred = self.load_image(os.path.join(self.staticpicdir, 'cred.bmp'))
-            self.attack = self.load_image(os.path.join(self.staticpicdir, 'attack.bmp'))
-            self.attacks = self.load_image(os.path.join(self.staticpicdir, 'attacks.bmp'))
-            self.gold = self.load_image(os.path.join(self.staticpicdir, 'gold.bmp'))
-            self.networkkb = self.load_image(os.path.join(self.staticpicdir, 'networkkb.bmp'))
-            self.zombie = self.load_image(os.path.join(self.staticpicdir, 'zombie.bmp'))
-            self.data = self.load_image(os.path.join(self.staticpicdir, 'data.bmp'))
-            self.money = self.load_image(os.path.join(self.staticpicdir, 'money.bmp'))
-            self.zombie_status = self.load_image(os.path.join(self.staticpicdir, 'zombie.bmp'))
-            self.attack = self.load_image(os.path.join(self.staticpicdir, 'attack.bmp'))
+            self.bjorn1 = self.load_image(os.path.join(self.staticpicdir, 'bjorn1.bmp'), scale=status_scale) # Used to calculate the center of the screen
+            self.port = self.load_image(os.path.join(self.staticpicdir, 'port.bmp'), scale=icon_scale)
+            self.frise = self.load_image(os.path.join(self.staticpicdir, 'frise.bmp'), scale=icon_scale)
+            self.target = self.load_image(os.path.join(self.staticpicdir, 'target.bmp'), scale=icon_scale)
+            self.vuln = self.load_image(os.path.join(self.staticpicdir, 'vuln.bmp'), scale=icon_scale)
+            self.connected = self.load_image(os.path.join(self.staticpicdir, 'connected.bmp'), scale=icon_scale)
+            self.bluetooth = self.load_image(os.path.join(self.staticpicdir, 'bluetooth.bmp'), scale=icon_scale)
+            self.wifi = self.load_image(os.path.join(self.staticpicdir, 'wifi.bmp'), scale=icon_scale)
+            self.ethernet = self.load_image(os.path.join(self.staticpicdir, 'ethernet.bmp'), scale=icon_scale)
+            self.usb = self.load_image(os.path.join(self.staticpicdir, 'usb.bmp'), scale=icon_scale)
+            self.level = self.load_image(os.path.join(self.staticpicdir, 'level.bmp'), scale=icon_scale)
+            self.cred = self.load_image(os.path.join(self.staticpicdir, 'cred.bmp'), scale=icon_scale)
+            self.attack = self.load_image(os.path.join(self.staticpicdir, 'attack.bmp'), scale=icon_scale)
+            self.attacks = self.load_image(os.path.join(self.staticpicdir, 'attacks.bmp'), scale=icon_scale)
+            self.gold = self.load_image(os.path.join(self.staticpicdir, 'gold.bmp'), scale=icon_scale)
+            self.networkkb = self.load_image(os.path.join(self.staticpicdir, 'networkkb.bmp'), scale=icon_scale)
+            self.zombie = self.load_image(os.path.join(self.staticpicdir, 'zombie.bmp'), scale=icon_scale)
+            self.data = self.load_image(os.path.join(self.staticpicdir, 'data.bmp'), scale=icon_scale)
+            self.money = self.load_image(os.path.join(self.staticpicdir, 'money.bmp'), scale=icon_scale)
+            self.zombie_status = self.load_image(os.path.join(self.staticpicdir, 'zombie.bmp'), scale=icon_scale)
+            self.attack = self.load_image(os.path.join(self.staticpicdir, 'attack.bmp'), scale=icon_scale)
 
             """ Load the images for the different actions status"""
             # Dynamically load status images based on actions.json
@@ -551,7 +611,7 @@ class SharedData:
                         if b_class:
                             indiv_status_path = os.path.join(self.statuspicdir, b_class)
                             image_path = os.path.join(indiv_status_path, f'{b_class}.bmp')
-                            image = self.load_image(image_path)
+                            image = self.load_image(image_path, scale=status_scale)
                             setattr(self, b_class, image)
                             logger.info(f"Loaded image for {b_class} from {image_path}")
             except Exception as e:
@@ -569,7 +629,7 @@ class SharedData:
 
                 for image_name in os.listdir(status_dir):
                     if image_name.endswith('.bmp') and re.search(r'\d', image_name):
-                        image = self.load_image(os.path.join(status_dir, image_name))
+                        image = self.load_image(os.path.join(status_dir, image_name), scale=status_scale)
                         if image:
                             self.image_series[status].append(image)
 
@@ -601,14 +661,15 @@ class SharedData:
         self.bjornstatustext = self.bjornorch_status  # Mettre à jour le texte du statut
 
 
-    def load_image(self, image_path):
+    def load_image(self, image_path, scale=1.0, mode="1-bit-friendly"):
 
         """Load an image."""
         try:
             if not os.path.exists(image_path):
                 logger.warning(f"Warning: {image_path} does not exist.")
                 return None
-            return Image.open(image_path)
+            image = Image.open(image_path)
+            return self.scale_image(image, scale, mode=mode)
         except Exception as e:
             logger.error(f"Error loading image {image_path}: {e}")
             raise
