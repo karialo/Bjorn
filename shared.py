@@ -501,11 +501,8 @@ class SharedData:
         self.status_scale = self._read_scale_env("BJORN_STATUS_SCALE", default_scale)
 
         logger.info(
-            "Display scales (driver=%s): font=%.2f icon=%.2f status=%.2f",
-            display_driver,
-            self.font_scale,
-            self.icon_scale,
-            self.status_scale,
+            f"Display scales (driver={display_driver}): "
+            f"font={self.font_scale:.2f} icon={self.icon_scale:.2f} status={self.status_scale:.2f}"
         )
 
     def _read_scale_env(self, name, default):
@@ -516,18 +513,18 @@ class SharedData:
 
         raw_value = raw_value.strip()
         if raw_value == "":
-            logger.warning("%s is empty; using default %.2f", name, default)
+            logger.warning(f"{name} is empty; using default {default:.2f}")
             return default
 
         try:
             scale = float(raw_value)
         except ValueError:
-            logger.warning("%s has invalid value '%s'; using default %.2f", name, raw_value, default)
+            logger.warning(f"{name} has invalid value '{raw_value}'; using default {default:.2f}")
             return default
 
         clamped = max(0.5, min(3.0, scale))
         if clamped != scale:
-            logger.warning("%s value %.2f is out of range; clamped to %.2f", name, scale, clamped)
+            logger.warning(f"{name} value {scale:.2f} is out of range; clamped to {clamped:.2f}")
         return clamped
 
     def scale_image(self, img, scale, mode="1-bit-friendly"):
